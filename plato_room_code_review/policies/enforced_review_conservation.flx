@@ -1,0 +1,41 @@
+POLICY enforced_review_conservation {
+    DOC "Conservation laws for review payloads — enforced before posting to GitHub."
+    DOC "See: enforcer_integration.py for the Python implementation."
+
+    # ─── Hard laws (block) ────────────────────────────────
+
+    LAW no-empty-review {
+        GUARD review_body != ""
+        ON_VIOLATION BLOCK
+        EMIT "Review body must not be empty."
+    }
+
+    LAW no-suppressed-findings {
+        SENSE  failing_check_count
+        GUARD NOT (failing_check_count > 0 AND review_body CONTAINS "all checks passed")
+        ON_VIOLATION BLOCK
+        EMIT "Review claims success while checks are failing."
+    }
+
+    LAW severity-honesty {
+        SENSE  error_severity_failing
+        GUARD NOT (error_severity_failing > 0 AND review_event == "APPROVE")
+        ON_VIOLATION BLOCK
+        EMIT "Cannot approve with failing error-severity checks."
+    }
+
+    LAW no-secret-leakage {
+        GUARD review_body NOT_MATCHES SECRET_PATTERNS
+        ON_VIOLATION TRANSFORM REDACT
+        EMIT "Review body contained secret-like string — redacted."
+    }
+
+    # ─── Soft laws (transform) ────────────────────────────
+
+    LAW must-include-remediation {
+        SENSE  failing_check_count
+        GUARD failing_check_count == 0 OR review_body CONTAINS_REMEDIATION
+        ON_VIOLATION TRANSFORM APPEND_REMEDIATION
+        EMIT "Appended remediation guidance for failing checks."
+    }
+}
