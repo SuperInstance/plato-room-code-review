@@ -299,6 +299,22 @@ self.register_sensor("cr_alarms", lambda r: {
 
 MIT — see [LICENSE](LICENSE).
 
-## Part of
+## Ecosystem
+
+### PLATO Rooms
+- [plato-core](https://github.com/SuperInstance/plato-core) — PLATO protocol & engine
+- [plato-room-code-review](https://github.com/SuperInstance/plato-room-code-review) — This repo: automated code review room
+- [plato-room-security-audit](https://github.com/SuperInstance/plato-room-security-audit) — Security audit room *(planned)*
+- [plato-room-deployment-approval](https://github.com/SuperInstance/plato-room-deployment-approval) — Deployment approval room *(planned)*
+
+### FLUX Integration
+- [flux-vm](https://github.com/SuperInstance/flux-vm) — Python VM for policy bytecode (`pip install flux-vm`)
+- [flux-registry](https://github.com/SuperInstance/flux-registry) — Policy registry (`pip install flux-registry`)
+
+### Philosophy
+- [AI-Writings](https://github.com/SuperInstance/AI-Writings) — Essays, fiction, poetry
+- [NEXT_HORIZONS](https://github.com/SuperInstance/SuperInstance/blob/main/NEXT_HORIZONS.md) — Strategy
+
+---
 
 [SuperInstance](https://github.com/SuperInstance) — the PLATO ecosystem.
