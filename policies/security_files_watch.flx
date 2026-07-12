@@ -1,0 +1,25 @@
+// FLUX Policy: security_files_watch.flx
+// Alarm fires when security-critical files are modified
+//
+// These files (Dockerfiles, CI configs, auth modules, etc.) get
+// extra scrutiny — the review room flags them for human review.
+
+POLICY security_files_watch {
+    SENSE  security_file_count   // sensor: count of security files touched
+    SENSE  pr_open
+
+    GUARD   pr_open == 1
+    GUARD   security_file_count > 0
+
+    ALARM   severity=warning
+    ALARM   cooldown=600
+    ACTUATE apply_label value=4   // label: security-review
+    EMIT    "Security-critical files modified — manual review required"
+}
+
+META {
+    id:       "security_files_watch"
+    version:  "0.1.0"
+    author:   "plato-room-code-review"
+    tags:     ["security", "review", "critical-files"]
+}

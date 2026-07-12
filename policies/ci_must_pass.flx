@@ -1,0 +1,38 @@
+// FLUX Policy: ci_must_pass.flx
+// Alarm fires if CI checks are failing on the PR's head SHA
+
+POLICY ci_must_pass {
+    SENSE  ci_failed    // sensor: count of failed CI checks
+    SENSE  ci_pending   // sensor: count of pending CI checks
+    SENSE  pr_open      // sensor: is PR still open?
+
+    // Condition: open PR with failed CI
+    GUARD   pr_open == 1
+    GUARD   ci_failed > 0
+
+    // Action
+    ALARM   severity=warning
+    ALARM   cooldown=300
+    ACTUATE apply_label value=3   // label: ci-failing
+    EMIT    "CI checks are failing on this PR"
+}
+
+// Sub-policy: warn (don't block) on pending CI
+POLICY ci_pending_info {
+    SENSE  ci_pending
+    SENSE  pr_open
+
+    GUARD   pr_open == 1
+    GUARD   ci_pending > 0
+
+    ALARM   severity=info
+    ALARM   cooldown=120
+    EMIT    "CI checks are still running"
+}
+
+META {
+    id:       "ci_must_pass"
+    version:  "0.1.0"
+    author:   "plato-room-code-review"
+    tags:     ["ci", "quality", "automation"]
+}

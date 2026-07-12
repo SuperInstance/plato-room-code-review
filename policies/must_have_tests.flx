@@ -1,0 +1,30 @@
+// FLUX Policy: must_have_tests.flx
+// Alarm fires if PR has no test files
+//
+// Policy bytecode for the PLATO policy engine.
+// Encodes: IF pr_open AND changed_files > 0 AND test_files == 0 THEN alarm
+
+POLICY must_have_tests {
+    SENSE  pr_open            // sensor: is PR open?
+    SENSE  changed_file_count // sensor: number of changed files
+    SENSE  test_file_count    // sensor: number of test files
+
+    // Condition: open PR with changes but no tests
+    GUARD   pr_open == 1
+    GUARD   changed_file_count > 0
+    GUARD   test_file_count < 1
+
+    // Action
+    ALARM   severity=warning
+    ALARM   cooldown=600
+    ACTUATE post_review value=1   // post COMMENT review
+    EMIT    "PR adds code but has no test files"
+}
+
+// Metadata
+META {
+    id:       "must_have_tests"
+    version:  "0.1.0"
+    author:   "plato-room-code-review"
+    tags:     ["tests", "coverage", "quality"]
+}

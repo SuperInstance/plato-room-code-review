@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "plato-room-code-review"
+version = "0.1.0"
+description = "PLATO Code Review Room — automated code review as an engine block"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "plato-core>=0.1.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+plato-code-review = "plato_room_code_review.room:main"
+
+[project.entry-points."superinstance.plugins"]
+code-review = "plato_room_code_review._mesh:register"
+
+[tool.setuptools]
+packages = ["plato_room_code_review"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
