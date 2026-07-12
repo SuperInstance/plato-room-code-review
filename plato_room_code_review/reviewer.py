@@ -329,9 +329,424 @@ def check_large_diff(diff: str) -> CheckResult:
         )
     return CheckResult(
         check_id="large_diff",
-        name="Large Diff",
+            name="Large Diff",
         passed=True,
         message=f"Diff size ({added} lines) is reasonable.",
+    )
+
+
+# ─── Extended heuristics ─────────────────────────────────────
+
+@check
+def check_missing_license(diff: str) -> CheckResult:
+    """Check for missing LICENSE file in new repos.
+
+    Detects when a PR creates multiple files (suggesting a new project)
+    but no LICENSE file is among them.
+    """
+    created_files: list[str] = []
+    has_license = False
+
+    for line in diff.splitlines():
+        if line.startswith("diff --git"):
+            parts = line.split()
+            if len(parts) >= 4:
+                fname = parts[-1].lstrip("b/")
+                created_files.append(fname)
+                if fname.upper() == "LICENSE" or fname.upper().startswith("LICENSE."):
+                    has_license = True
+
+    # Heuristic: if 3+ files are created and none is LICENSE, flag it
+    if len(created_files) >= 3 and not has_license:
+        return CheckResult(
+            check_id="missing_license",
+            name="Missing LICENSE",
+            passed=False,
+            message=f"{len(created_files)} file(s) created but no LICENSE file found. "
+                    f"Consider adding an open-source license.",
+            severity="info",
+        )
+    return CheckResult(
+        check_id="missing_license",
+        name="Missing LICENSE",
+        passed=True,
+        message="LICENSE file present or too few files to flag.",
+    )
+
+
+@check
+def check_console_print(diff: str) -> CheckResult:
+    """Check for console.log / print statements left in production code."""
+    findings: list[tuple[str, str]] = []
+
+    current_file = None
+    for line in diff.splitlines():
+        if line.startswith("diff --git"):
+            parts = line.split()
+            if len(parts) >= 4:
+                current_file = parts[-1].lstrip("b/")
+        if line.startswith("+") and not line.startswith("+++"):
+            content = line[1:]
+            stripped = content.strip()
+            # Skip comments
+            if stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("/*"):
+                continue
+            # Skip test files — prints in tests are fine
+            if current_file and (
+                "test" in current_file.lower()
+                or current_file.endswith(("_test.py", ".test.ts", ".test.js", ".spec.ts", ".spec.js"))
+            ):
+                continue
+            # Detect console.log (JS/TS)
+            if re.search(r"\bconsole\.log\s*\(", content):
+                findings.append((current_file or "?", stripped[:80]))
+            # Detect print() in Python (not in __repr__ or __str__ or debug functions)
+            if current_file and current_file.endswith(".py"):
+                if re.search(r"\bprint\s*\(", content) and not re.search(r"def\s+\w+", content):
+                    findings.append((current_file or "?", stripped[:80]))
+
+    if findings:
+        return CheckResult(
+            check_id="console_print",
+            name="Debug Print Statements",
+            passed=False,
+            message=f"{len(findings)} debug print/console.log statement(s) found. "
+                    f"Remove before merging.",
+            severity="warning",
+            file_hints=list({f[0] for f in findings})[:5],
+        )
+    return CheckResult(
+        check_id="console_print",
+        name="Debug Print Statements",
+        passed=True,
+        message="No debug print statements detected.",
+    )
+
+
+@check
+def check_todo_without_assignee(diff: str) -> CheckResult:
+    """Check for TODO/FIXME comments without an assignee.
+
+    Looks for TODO, FIXME, HACK, XXX without a GitHub username assignee
+    (e.g. `@username`) or issue reference (e.g. `#123`).
+    """
+    findings: list[tuple[str, str]] = []
+    todo_pattern = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
+    assignee_pattern = re.compile(r"@[A-Za-z0-9_-]+|#\d+")
+
+    current_file = None
+    for line in diff.splitlines():
+        if line.startswith("diff --git"):
+            parts = line.split()
+            if len(parts) >= 4:
+                current_file = parts[-1].lstrip("b/")
+        if line.startswith("+") and not line.startswith("+++"):
+            content = line[1:]
+            if todo_pattern.search(content):
+                # Check if there's an assignee or issue reference
+                if not assignee_pattern.search(content):
+                    findings.append((current_file or "?", content.strip()[:80]))
+
+    if findings:
+        return CheckResult(
+            check_id="todo_without_assignee",
+            name="TODO Without Assignee",
+            passed=False,
+            message=f"{len(findings)} TODO/FIXME comment(s) without assignee or issue reference. "
+                    f"Use `TODO @username` or `TODO #issue`.",
+            severity="info",
+            file_hints=list({f[0] for f in findings})[:5],
+        )
+    return CheckResult(
+        check_id="todo_without_assignee",
+        name="TODO Without Assignee",
+        passed=True,
+        message="All TODO/FIXME comments have assignees or issue references.",
+    )
+
+
+@check
+def check_long_functions(diff: str) -> CheckResult:
+    """Check for functions longer than 50 lines in added code.
+
+    Approximates function boundaries by tracking def/return indentation.
+    Works for Python; for JS/TS uses function arrow patterns.
+    """
+    max_lines = 50
+    findings: list[tuple[str, str, int]] = []
+
+    lines = diff.splitlines()
+    current_file = None
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("diff --git"):
+            parts = line.split()
+            if len(parts) >= 4:
+                current_file = parts[-1].lstrip("b/")
+            i += 1
+            continue
+
+        # Only look at added lines
+        if not (line.startswith("+") and not line.startswith("+++")):
+            i += 1
+            continue
+
+        content = line[1:]
+
+        # Python function definition
+        if current_file and current_file.endswith(".py"):
+            func_match = re.match(r"^(\s*)def\s+(\w+)", content)
+            if func_match:
+                indent = len(func_match.group(1))
+                func_name = func_match.group(2)
+                # Count lines until next function/class at same or lower indent, or end of diff
+                func_len = 1
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j]
+                    if next_line.startswith("diff --git"):
+                        break
+                    if next_line.startswith("+") and not next_line.startswith("+++"):
+                        next_content = next_line[1:]
+                        # Check if this is a new def/class at same or lower indent
+                        next_def = re.match(r"^(\s*)(def |class )", next_content)
+                        if next_def and len(next_def.group(1)) <= indent:
+                            break
+                        func_len += 1
+                    elif next_line.startswith(" ") or next_line.startswith("\t"):
+                        # Context line — counts toward function length
+                        func_len += 1
+                    elif next_line == "":
+                        func_len += 1
+                    else:
+                        break
+                    j += 1
+
+                if func_len > max_lines:
+                    findings.append((current_file or "?", func_name, func_len))
+
+        # JS/TS function definition
+        if current_file and current_file.endswith((".ts", ".js", ".tsx", ".jsx")):
+            func_match = re.match(r"^(\s*)(export\s+)?(async\s+)?function\s+(\w+)", content)
+            if not func_match:
+                func_match = re.match(r"^(\s*)(export\s+)?const\s+(\w+)\s*=\s*(async\s*)?\(", content)
+            if func_match:
+                func_name = func_match.group(func_match.lastindex)
+                func_len = 1
+                brace_depth = content.count("{") - content.count("}")
+                j = i + 1
+                while j < len(lines) and brace_depth > 0:
+                    next_line = lines[j]
+                    if next_line.startswith("diff --git"):
+                        break
+                    if next_line.startswith("+") and not next_line.startswith("+++"):
+                        nc = next_line[1:]
+                        brace_depth += nc.count("{") - nc.count("}")
+                        func_len += 1
+                    elif next_line.startswith(" ") or next_line.startswith("\t"):
+                        brace_depth += next_line.count("{") - next_line.count("}")
+                        func_len += 1
+                    elif next_line == "":
+                        func_len += 1
+                    else:
+                        break
+                    j += 1
+
+                if func_len > max_lines:
+                    findings.append((current_file or "?", func_name or "anon", func_len))
+
+        i += 1
+
+    if findings:
+        hints = [f"{f[0]}::{f[1]}()" for f in findings]
+        return CheckResult(
+            check_id="long_functions",
+            name="Long Functions",
+            passed=False,
+            message=f"{len(findings)} function(s) exceed {max_lines} lines: "
+                    f"{', '.join(hints[:5])}",
+            severity="warning",
+            file_hints=[f[0] for f in findings][:5],
+        )
+    return CheckResult(
+        check_id="long_functions",
+        name="Long Functions",
+        passed=True,
+        message=f"All functions are within {max_lines} lines.",
+    )
+
+
+# Decision points for rough cyclomatic complexity
+_COMPLEXITY_KEYWORDS = [
+    re.compile(r"\bif\b"),
+    re.compile(r"\belif\b"),
+    re.compile(r"\belse\b"),
+    re.compile(r"\bfor\b"),
+    re.compile(r"\bwhile\b"),
+    re.compile(r"\btry\b"),
+    re.compile(r"\bexcept\b"),
+    re.compile(r"\band\b"),
+    re.compile(r"\bor\b"),
+    re.compile(r"\bcase\b"),
+    re.compile(r"\?"),  # ternary
+    re.compile(r"\bcatch\b"),
+    re.compile(r"\bswitch\b"),
+]
+
+
+@check
+def check_cyclomatic_complexity(diff: str) -> CheckResult:
+    """Rough estimate of cyclomatic complexity in added code.
+
+    Counts decision points (if, elif, for, while, and, or, try, except,
+    ternary, switch/case, catch) in added lines.  A function with >10
+    decision points is considered complex.
+    """
+    threshold = 10
+    findings: list[tuple[str, int]] = []
+
+    current_file = None
+    current_func_complexity = 0
+    current_func_name = None
+    current_indent = 0
+
+    for line in diff.splitlines():
+        if line.startswith("diff --git"):
+            # Flush previous function
+            if current_func_complexity > threshold:
+                findings.append((current_func_name or "unknown", current_func_complexity))
+            current_func_complexity = 0
+            current_func_name = None
+
+            parts = line.split()
+            if len(parts) >= 4:
+                current_file = parts[-1].lstrip("b/")
+            continue
+
+        if not (line.startswith("+") and not line.startswith("+++")):
+            continue
+
+        content = line[1:]
+
+        # Track function entry for Python
+        if current_file and current_file.endswith(".py"):
+            func_match = re.match(r"^(\s*)def\s+(\w+)", content)
+            if func_match:
+                # Flush previous function
+                if current_func_complexity > threshold:
+                    findings.append((current_func_name or "unknown", current_func_complexity))
+                current_func_name = func_match.group(2)
+                current_func_complexity = 1  # base complexity
+                current_indent = len(func_match.group(1))
+                continue
+
+            # Count decision points within functions
+            if current_func_name:
+                for pattern in _COMPLEXITY_KEYWORDS:
+                    current_func_complexity += len(pattern.findall(content))
+
+    # Flush last function
+    if current_func_complexity > threshold:
+        findings.append((current_func_name or "unknown", current_func_complexity))
+
+    if findings:
+        return CheckResult(
+            check_id="cyclomatic_complexity",
+            name="High Cyclomatic Complexity",
+            passed=False,
+            message=f"{len(findings)} function(s) with complexity > {threshold}: "
+                    f"{', '.join(f'{n}({c})' for n, c in findings[:5])}",
+            severity="warning",
+        )
+    return CheckResult(
+        check_id="cyclomatic_complexity",
+        name="High Cyclomatic Complexity",
+        passed=True,
+        message=f"All functions within complexity threshold ({threshold}).",
+    )
+
+
+@check
+def check_missing_docstrings(diff: str) -> CheckResult:
+    """Check for missing docstrings on public Python functions.
+
+    A public function is one that doesn't start with `_`.  We look for
+    `def` in added lines and check if a docstring follows within 3 lines.
+    """
+    findings: list[str] = []
+
+    lines = diff.splitlines()
+    current_file = None
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("diff --git"):
+            parts = line.split()
+            if len(parts) >= 4:
+                current_file = parts[-1].lstrip("b/")
+            i += 1
+            continue
+
+        if not (line.startswith("+") and not line.startswith("+++")):
+            i += 1
+            continue
+
+        content = line[1:]
+
+        if current_file and current_file.endswith(".py"):
+            func_match = re.match(r"^def\s+(\w+)", content)
+            if func_match:
+                func_name = func_match.group(1)
+                # Skip private functions and dunder methods
+                if func_name.startswith("_"):
+                    i += 1
+                    continue
+                # Skip __init__, __str__, etc.
+                if func_name.startswith("__") and func_name.endswith("__"):
+                    i += 1
+                    continue
+
+                # Look ahead for docstring in next few added lines
+                has_docstring = False
+                for j in range(i + 1, min(i + 4, len(lines))):
+                    next_line = lines[j]
+                    if next_line.startswith("+") and not next_line.startswith("+++"):
+                        nc = next_line[1:].strip()
+                        if nc.startswith('""') or nc.startswith("'''"):
+                            has_docstring = True
+                            break
+                        # If we hit actual code (not blank/docstring), no docstring
+                        if nc and not nc.startswith("#") and nc != "...":
+                            break
+                    elif next_line.startswith(" "):
+                        nc = next_line.strip()
+                        if nc.startswith('""') or nc.startswith("'''"):
+                            has_docstring = True
+                            break
+
+                if not has_docstring:
+                    findings.append(f"{current_file}::{func_name}()")
+
+        i += 1
+
+    if findings:
+        return CheckResult(
+            check_id="missing_docstrings",
+            name="Missing Docstrings",
+            passed=False,
+            message=f"{len(findings)} public function(s) without docstrings: "
+                    f"{', '.join(findings[:5])}",
+            severity="info",
+            file_hints=[f.split("::")[0] for f in findings][:5],
+        )
+    return CheckResult(
+        check_id="missing_docstrings",
+        name="Missing Docstrings",
+        passed=True,
+        message="All public functions have docstrings.",
     )
 
 
