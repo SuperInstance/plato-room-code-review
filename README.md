@@ -295,6 +295,85 @@ self.register_sensor("cr_alarms", lambda r: {
 })
 ```
 
+## Conservation Enforcer Integration
+
+The `EnforcedReviewRoom` wraps all review output through a **Conservation Enforcer** before posting to GitHub, creating a two-layer governance pipeline:
+
+| Layer | What it catches | Examples |
+|-------|----------------|----------|
+| **Room** (CodeReviewRoom) | Domain violations in the PR | Secrets in diff, missing tests, CI bypass |
+| **Enforcer** (meta-governance) | Information-quality violations in the review itself | Suppressed findings, missing remediation, secret leakage into review body |
+
+### Quick Start
+
+```python
+from plato_room_code_review.github_client import GitHubClient
+from plato_room_code_review.enforcer_integration import EnforcedReviewRoom
+
+gh = GitHubClient(token="ghp_...")
+room = EnforcedReviewRoom(gh, "owner", "repo", pr_number=42)
+
+# Run sensors + enforce + post in one call
+from plato_room_code_review.reviewer import run_all_checks
+diff = gh.fetch_pr_diff("owner", "repo", 42)
+results = run_all_checks(diff)
+result = room.post_enforced_review(results, "COMMENT")
+
+print(result.verdict)  # PASS | TRANSFORM | BLOCK | DEFER
+print(room.metrics.summary())
+```
+
+### Conservation Laws
+
+| Law ID | Severity | What it enforces |
+|--------|----------|------------------|
+| `no-empty-review` | hard (block) | Review body must not be empty |
+| `no-suppressed-findings` | hard (block) | Review must not claim success while checks fail |
+| `severity-honesty` | hard (block) | Must not APPROVE with failing error-severity checks |
+| `no-secret-leakage` | hard (block) | Review body must not contain raw secrets from the diff |
+| `must-include-remediation` | soft (transform) | Failing checks must include actionable remediation |
+
+### Metrics
+
+The `EnforcerMetrics` tracker exposes:
+
+```python
+room.metrics.summary()
+# {
+#   "total_reviews": 50,
+#   "passed": 42,
+#   "transformed": 6,
+#   "blocked": 2,
+#   "block_rate": 0.04,
+#   "transform_rate": 0.12,
+#   "violations_by_law": {"no-suppressed-findings": 2, ...},
+#   "transforms_by_law": {"must-include-remediation": 6, ...}
+# }
+```
+
+The room also registers an `enforcer_block_spike` alarm that fires when the block rate exceeds 25% in the last 20 reviews — a signal of systemic review quality issues.
+
+### Custom Laws
+
+```python
+from plato_room_code_review.enforcer_integration import ConservationLaw
+
+my_law = ConservationLaw(
+    law_id="no-tldr-skipping",
+    description="Review must include a TL;DR section.",
+    evaluate=lambda body, results: (
+        "tldr" in body.lower() or "summary" in body.lower(),
+        "Review missing TL;DR section.",
+        body + "\n### TL;DR\nSee above.\n" if "tldr" not in body.lower() else None,
+    ),
+    severity="soft",
+)
+
+room = EnforcedReviewRoom(gh, "owner", "repo", 42, custom_laws=[my_law])
+```
+
+See `ON_ENFORCED_ROOMS.md` for the design rationale.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
