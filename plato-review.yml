@@ -1,0 +1,15 @@
+checks:
+  missing_tests: enabled
+  ci_bypass: enabled
+  hardcoded_secrets: enabled
+  sql_injection: enabled
+  type_hints: warn  # don't block, just warn
+  security_files: enabled
+  diff_size:
+    max_lines: 1000
+  missing_license: enabled
+  console_print: warn
+  todo_without_assignee: warn
+  long_functions:
+    max_lines: 50
+  missing_docstrings: disabled
