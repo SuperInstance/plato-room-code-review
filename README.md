@@ -103,6 +103,12 @@ All checks are **heuristic** (no LLM, no AST parsing) — fast, deterministic, a
 | `sql_injection` | String concatenation in SQL execute() calls | error |
 | `security_file` | Changes to Dockerfiles, CI configs, auth modules | warning |
 | `large_diff` | > 500 lines added in a single PR | info |
+| `missing_license` | 3+ files created but no LICENSE file | info |
+| `console_print` | `console.log()` / `print()` left in production code | warning |
+| `todo_without_assignee` | TODO/FIXME/HACK/XXX without `@user` or `#issue` | info |
+| `long_functions` | Functions exceeding 50 lines | warning |
+| `cyclomatic_complexity` | Functions with >10 decision points | warning |
+| `missing_docstrings` | Public Python functions without docstrings | info |
 
 ### Adding a check
 
@@ -129,6 +135,55 @@ def check_no_debug_print(diff: str) -> CheckResult:
 ```
 
 That's it — the `@check` decorator registers it automatically.
+
+## Review Reports
+
+The `report.py` module generates structured markdown reports from check results:
+
+```python
+from plato_room_code_review.reviewer import run_all_checks
+from plato_room_code_review.report import generate_report, generate_short_summary
+
+diff = client.fetch_pr_diff("owner", "repo", 42)
+results = run_all_checks(diff)
+
+# Full markdown report
+report = generate_report(results, repo="owner/repo", pr_number=42, author="alice")
+print(report)
+
+# One-line summary for status checks
+summary = generate_short_summary(results)
+# → "PLATO Review: 8/10 checks passed — REQUEST_CHANGES"
+```
+
+Reports include:
+- **Summary table**: checks run / passed / failed / recommendation
+- **Detailed results**: per-check status, severity, message, and file hints
+- **Recommendation**: `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`
+
+## Configuration
+
+Configure checks via `plato-review.yml` in your repo root:
+
+```yaml
+checks:
+  missing_tests: enabled
+  ci_bypass: enabled
+  hardcoded_secrets: enabled
+  sql_injection: enabled
+  type_hints: warn  # don't block, just warn
+  security_files: enabled
+  diff_size:
+    max_lines: 1000
+  missing_license: enabled
+  console_print: warn
+  todo_without_assignee: warn
+  long_functions:
+    max_lines: 50
+  missing_docstrings: disabled
+```
+
+Options: `enabled`, `disabled`, `warn` (report but don't block).
 
 ## FLUX Policies
 
