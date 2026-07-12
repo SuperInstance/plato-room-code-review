@@ -11,9 +11,9 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from github_client import GitHubClient
-from room import CodeReviewRoom, BaseRoom, AlarmDef
-from reviewer import run_all_checks
+from plato_room_code_review.github_client import GitHubClient
+from plato_room_code_review.room import CodeReviewRoom, BaseRoom, AlarmDef
+from plato_room_code_review.reviewer import run_all_checks
 
 
 class TestGitHubClientSimulation:

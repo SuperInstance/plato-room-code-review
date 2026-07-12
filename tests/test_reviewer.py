@@ -10,7 +10,7 @@ import os
 # Allow running without install
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from reviewer import (
+from plato_room_code_review.reviewer import (
     run_all_checks,
     check_missing_tests,
     check_ci_bypass,
