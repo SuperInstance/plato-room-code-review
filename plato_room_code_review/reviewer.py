@@ -402,7 +402,9 @@ def check_console_print(diff: str) -> CheckResult:
                 findings.append((current_file or "?", stripped[:80]))
             # Detect print() in Python (not in __repr__ or __str__ or debug functions)
             if current_file and current_file.endswith(".py"):
-                if re.search(r"\bprint\s*\(", content) and not re.search(r"def\s+\w+", content):
+                # Only flag print() calls outside function definitions
+                # Check that the line doesn't start with def (proper function definition)
+                if re.search(r"\bprint\s*\(", content) and not stripped.startswith("def "):
                     findings.append((current_file or "?", stripped[:80]))
 
     if findings:
