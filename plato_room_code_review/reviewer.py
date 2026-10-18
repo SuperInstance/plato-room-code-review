@@ -141,6 +141,13 @@ def check_ci_bypass(diff: str) -> CheckResult:
                 current_file = parts[-1].lstrip("b/")
         if line.startswith("+") and not line.startswith("+++"):
             content = line[1:]
+            # A COMMENT is documentation, not a step. The detector's own
+            # workflow names the very shapes it looks for ("|| true",
+            # "continue-on-error: true", "set +e") in a comment explaining
+            # what it detects -- and it flagged its own comment, so the
+            # job failed on the PR that introduced the detector.
+            if content.lstrip().startswith("#"):
+                continue
             if current_file and (".github/workflows/" in current_file or current_file.endswith((".yml", ".yaml"))):
                 if "|| true" in content or "||exit 0" in content.replace(" ", ""):
                     findings.append(f"{current_file}: `{content.strip()}`")

@@ -82,7 +82,17 @@ class GitHubClient:
                 )
                 if resp.status == 204:
                     return {}
-                return json.loads(resp.read())
+                raw = resp.read()
+                # The Accept header decides the body format. A request for
+                # "application/vnd.github.v3.diff" comes back as a RAW DIFF,
+                # not as JSON -- so parsing it as JSON raised
+                # "Expecting value: line 1 column 1" on every real pull
+                # request, and the detector had never once run against a
+                # real PR. The `isinstance(data, str)` check downstream was
+                # dead code: _request could never return a str.
+                if accept and "diff" in accept:
+                    return raw.decode("utf-8", "replace")
+                return json.loads(raw)
         except HTTPError as exc:
             logger.error("GitHub API %s %s → %d: %s", method, path, exc.code, exc.read()[:200])
             raise
