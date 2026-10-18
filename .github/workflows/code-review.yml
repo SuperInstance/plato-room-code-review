@@ -1,10 +1,49 @@
+# The fleet's own CI-bypass detector, run on every pull request.
+#
+# SuperInstance/plato-room-code-review ships the check that names this class of defect
+# correctly (`ci_bypass`: `|| true`, `continue-on-error: true`, `set +e`) at
+# reviewer.py:145-150. Until now it was wired into exactly one repository, and even there
+# the workflow could not run -- it referenced a composite action that does not exist.
+#
+# The detector has no third-party dependencies, so it is checked out and run from source.
+# (It is not on PyPI, so the `pip install plato-room-code-review` form in its README cannot
+# work either.)
 name: PLATO Code Review
-on: pull_request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read          # read-only: `--once` fetches the diff and prints, it writes nothing
+
 jobs:
   review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: SuperInstance/plato-room-code-review@main
+
+      - uses: actions/setup-python@v5
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          python-version: "3.12"
+
+      - name: Check out the detector
+        uses: actions/checkout@v4
+        with:
+          repository: SuperInstance/plato-room-code-review
+          ref: main
+          path: .plato-detector
+
+      - name: Run the detector
+        working-directory: .plato-detector
+        # `--once` prints the report and returns; it does not post a review. tee it into the
+        # job summary so the finding is visible on the PR page instead of buried in a log.
+        # pipefail keeps the step honest if the detector itself crashes.
+        run: |
+          set -o pipefail
+          python -m plato_room_code_review.room \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --once | tee "$GITHUB_STEP_SUMMARY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
