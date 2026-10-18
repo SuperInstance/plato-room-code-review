@@ -2,7 +2,7 @@
 
 > Automated code review as a **PLATO engine block** — the first real room in the SuperInstance ecosystem.
 
-[![Tests](https://github.com/SuperInstance/plato-room-code-review/actions/workflows/ci.yml/badge.svg)](https://github.com/SuperInstance/plato-room-code-review/actions/workflows/ci.yml)
+[![Tests](https://github.com/SuperInstance/plato-room-code-review/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/SuperInstance/plato-room-code-review/actions/workflows/ci.yml)
 
 ## What is this?
 
