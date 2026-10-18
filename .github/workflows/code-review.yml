@@ -15,8 +15,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: read          # read-only: `--once` fetches the diff and prints, it writes nothing
 
 jobs:
   review:
@@ -37,10 +36,14 @@ jobs:
 
       - name: Run the detector
         working-directory: .plato-detector
+        # `--once` prints the report and returns; it does not post a review. tee it into the
+        # job summary so the finding is visible on the PR page instead of buried in a log.
+        # pipefail keeps the step honest if the detector itself crashes.
         run: |
+          set -o pipefail
           python -m plato_room_code_review.room \
             --repo "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
-            --once
+            --once | tee "$GITHUB_STEP_SUMMARY"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
